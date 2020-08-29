@@ -4,8 +4,6 @@
 ** See Copyright Notice in mruby.h
 */
 
-#include <stddef.h>
-#include <stdint.h>
 #include <string.h>
 #include <mruby.h>
 
@@ -25,6 +23,13 @@
 #endif
 /* end of configuration section */
 
+/* Disable MSVC warning "C4200: nonstandard extension used: zero-sized array
+ * in struct/union" when in C++ mode */
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4200)
+#endif
+
 struct mrb_pool_page {
   struct mrb_pool_page *next;
   size_t offset;
@@ -32,6 +37,10 @@ struct mrb_pool_page {
   void *last;
   char page[];
 };
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 struct mrb_pool {
   mrb_state *mrb;

@@ -10,7 +10,7 @@ class Range
   #
   # ISO 15.2.14.4.4
   def each(&block)
-    return to_enum :each unless block_given?
+    return to_enum :each unless block
 
     val = self.first
     last = self.last
@@ -26,7 +26,7 @@ class Range
       return self
     end
 
-    if val.kind_of?(String) && last.kind_of?(String) # fixnums are special
+    if val.kind_of?(String) && last.kind_of?(String) # strings are special
       if val.respond_to? :upto
         return val.upto(last, exclude_end?, &block)
       else

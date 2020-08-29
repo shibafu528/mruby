@@ -13,6 +13,8 @@
 # @ISO 15.3.2
 module Enumerable
 
+  NONE = Object.new
+
   ##
   # Call the given block for each element
   # which is yield by +each+. Return false
@@ -63,22 +65,22 @@ module Enumerable
   end
 
   ##
-  # Call the given block for each element
-  # which is yield by +each+. Return
-  # +ifnone+ if no block value was true.
-  # Otherwise return the first block value
-  # which had was true.
+  # Return the first element for which
+  # value from the block is true. If no
+  # object matches, calls +ifnone+ and
+  # returns its result. Otherwise returns
+  # +nil+.
   #
   # ISO 15.3.2.2.4
   def detect(ifnone=nil, &block)
-    ret = ifnone
+    return to_enum :detect, ifnone unless block
+
     self.each{|*val|
       if block.call(*val)
-        ret = val.__svalue
-        break
+        return val.__svalue
       end
     }
-    ret
+    ifnone.call unless ifnone.nil?
   end
 
   ##
@@ -282,6 +284,8 @@ module Enumerable
   #
   # ISO 15.3.2.2.16
   def partition(&block)
+    return to_enum :partition unless block
+
     ary_T = []
     ary_F = []
     self.each{|*val|
@@ -302,6 +306,8 @@ module Enumerable
   #
   # ISO 15.3.2.2.17
   def reject(&block)
+    return to_enum :reject unless block
+
     ary = []
     self.each{|*val|
       ary.push(val.__svalue) unless block.call(*val)
@@ -316,45 +322,6 @@ module Enumerable
   alias select find_all
 
   ##
-  # TODO
-  # Does this OK? Please test it.
-  def __sort_sub__(sorted, work, src_ary, head, tail, &block)
-    if head == tail
-      sorted[head] = work[head] if src_ary == 1
-      return
-    end
-
-    # on current step, which is a src ary?
-    if src_ary == 0
-      src, dst = sorted, work
-    else
-      src, dst = work, sorted
-    end
-
-    key = src[head]    # key value for dividing values
-    i, j = head, tail  # position to store on the dst ary
-
-    (head + 1).upto(tail){|idx|
-      if ((block)? block.call(src[idx], key): (src[idx] <=> key)) > 0
-        # larger than key
-        dst[j] = src[idx]
-        j -= 1
-      else
-        dst[i] = src[idx]
-        i += 1
-      end
-    }
-
-    sorted[i] = key
-
-    # sort each sub-array
-    src_ary = (src_ary + 1) % 2  # exchange a src ary
-    __sort_sub__(sorted, work, src_ary, head, i - 1, &block) if i > head
-    __sort_sub__(sorted, work, src_ary, i + 1, tail, &block) if i < tail
-  end
-#  private :__sort_sub__
-
-  ##
   # Return a sorted array of all elements
   # which are yield by +each+. If no block
   # is given <=> will be invoked on each
@@ -364,12 +331,7 @@ module Enumerable
   #
   # ISO 15.3.2.2.19
   def sort(&block)
-    ary = []
-    self.each{|*val| ary.push(val.__svalue)}
-    if ary.size > 1
-      __sort_sub__(ary, ::Array.new(ary.size), 0, 0, ary.size - 1, &block)
-    end
-    ary
+    self.map{|*val| val.__svalue}.sort(&block)
   end
 
   ##
@@ -383,8 +345,7 @@ module Enumerable
     h = 12347
     i = 0
     self.each do |e|
-      n = (e.hash & (0x7fffffff >> (i % 16))) << (i % 16)
-      h ^= n
+      h = __update_hash(h, i, e.hash)
       i += 1
     end
     h

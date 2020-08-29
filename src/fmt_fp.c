@@ -1,3 +1,5 @@
+#ifndef MRB_WITHOUT_FLOAT
+#if defined(MRB_DISABLE_STDIO) || defined(_WIN32) || defined(_WIN64)
 /*
 
 Most code in this file originates from musl (src/stdio/vfprintf.c)
@@ -28,7 +30,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <limits.h>
 #include <string.h>
-#include <stdint.h>
 #include <math.h>
 #include <float.h>
 #include <ctype.h>
@@ -36,9 +37,19 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <mruby.h>
 #include <mruby/string.h>
 
+struct fmt_args;
+
+typedef void output_func(struct fmt_args *f, const char *s, size_t l);
+
 struct fmt_args {
   mrb_state *mrb;
-  mrb_value str;
+  output_func *output;
+  void *opaque;
+};
+
+struct mrb_cstr {
+  char *buf;
+  size_t len;
 };
 
 #define MAX(a,b) ((a)>(b) ? (a) : (b))
@@ -53,15 +64,44 @@ struct fmt_args {
 #define PAD_POS    (1U<<(' '-' '))
 #define MARK_POS   (1U<<('+'-' '))
 
+#define FLAGMASK (ALT_FORM|ZERO_PAD|LEFT_ADJ|PAD_POS|MARK_POS)
+
+static output_func strcat_value;
+static output_func strcat_cstr;
+
+static void
+strcat_value(struct fmt_args *f, const char *s, size_t l)
+{
+  mrb_value str = *(mrb_value*)f->opaque;
+  mrb_str_cat(f->mrb, str, s, l);
+}
+
+static void
+strcat_cstr(struct fmt_args *f, const char *s, size_t l)
+{
+  struct mrb_cstr *cstr = (struct mrb_cstr*)f->opaque;
+
+  if (l > cstr->len) {
+    mrb_state *mrb = f->mrb;
+
+    mrb_raise(mrb, E_ARGUMENT_ERROR, "string buffer too small");
+  }
+
+  memcpy(cstr->buf, s, l);
+
+  cstr->buf += l;
+  cstr->len -= l;
+}
+
 static void
 out(struct fmt_args *f, const char *s, size_t l)
 {
-  mrb_str_cat(f->mrb, f->str, s, l);
+  f->output(f, s, l);
 }
 
 #define PAD_SIZE 256
 static void
-pad(struct fmt_args *f, char c, int w, int l, int fl)
+pad(struct fmt_args *f, char c, ptrdiff_t w, ptrdiff_t l, uint32_t fl)
 {
   char pad[PAD_SIZE];
   if (fl & (LEFT_ADJ | ZERO_PAD) || l >= w) return;
@@ -91,16 +131,17 @@ typedef char compiler_defines_long_double_incorrectly[9-(int)sizeof(long double)
 #endif
 
 static int
-fmt_fp(struct fmt_args *f, long double y, int w, int p, int fl, int t)
+fmt_fp(struct fmt_args *f, long double y, ptrdiff_t w, ptrdiff_t p, uint32_t fl, int t)
 {
   uint32_t big[(LDBL_MANT_DIG+28)/29 + 1          // mantissa expansion
     + (LDBL_MAX_EXP+LDBL_MANT_DIG+28+8)/9]; // exponent expansion
   uint32_t *a, *d, *r, *z;
   uint32_t i;
-  int e2=0, e, j, l;
+  int e2=0, e, j;
+  ptrdiff_t l;
   char buf[9+LDBL_MANT_DIG/4], *s;
   const char *prefix="-0X+0X 0X-0x+0x 0x";
-  int pl;
+  ptrdiff_t pl;
   char ebuf0[3*sizeof(int)], *ebuf=&ebuf0[3*sizeof(int)], *estr;
 
   pl=1;
@@ -119,7 +160,7 @@ fmt_fp(struct fmt_args *f, long double y, int w, int p, int fl, int t)
     out(f, prefix, pl);
     out(f, ss, 3);
     pad(f, ' ', w, 3+pl, fl^LEFT_ADJ);
-    return MAX(w, 3+pl);
+    return (int)MAX(w, 3+pl);
   }
 
   y = frexp((double)y, &e2) * 2;
@@ -127,7 +168,7 @@ fmt_fp(struct fmt_args *f, long double y, int w, int p, int fl, int t)
 
   if ((t|32)=='a') {
     long double round = 8.0;
-    int re;
+    ptrdiff_t re;
 
     if (t&32) prefix += 9;
     pl += 2;
@@ -174,7 +215,7 @@ fmt_fp(struct fmt_args *f, long double y, int w, int p, int fl, int t)
     pad(f, '0', l-(ebuf-estr)-(s-buf), 0, 0);
     out(f, estr, ebuf-estr);
     pad(f, ' ', w, pl+l, fl^LEFT_ADJ);
-    return MAX(w, pl+l);
+    return (int)MAX(w, pl+l);
   }
   if (p<0) p=6;
 
@@ -202,7 +243,7 @@ fmt_fp(struct fmt_args *f, long double y, int w, int p, int fl, int t)
   }
   while (e2<0) {
     uint32_t carry=0, *b;
-    int sh=MIN(9,-e2), need=1+(p+LDBL_MANT_DIG/3+8)/9;
+    int sh=MIN(9,-e2), need=1+((int)p+LDBL_MANT_DIG/3+8)/9;
     for (d=a; d<z; d++) {
       uint32_t rm = *d & ((1<<sh)-1);
       *d = (*d>>sh) + carry;
@@ -216,11 +257,11 @@ fmt_fp(struct fmt_args *f, long double y, int w, int p, int fl, int t)
     e2+=sh;
   }
 
-  if (a<z) for (i=10, e=9*(r-a); *a>=i; i*=10, e++);
+  if (a<z) for (i=10, e=9*(int)(r-a); *a>=i; i*=10, e++);
   else e=0;
 
   /* Perform rounding: j is precision after the radix (possibly neg) */
-  j = p - ((t|32)!='f')*e - ((t|32)=='g' && p);
+  j = (int)p - ((t|32)!='f')*e - ((t|32)=='g' && p);
   if (j < 9*(z-r-1)) {
     uint32_t x;
     /* We avoid C's broken division of negative numbers */
@@ -247,7 +288,7 @@ fmt_fp(struct fmt_args *f, long double y, int w, int p, int fl, int t)
           if (d<a) *--a=0;
           (*d)++;
         }
-        for (i=10, e=9*(r-a); *a>=i; i*=10, e++);
+        for (i=10, e=9*(int)(r-a); *a>=i; i*=10, e++);
       }
     }
     if (z>d+1) z=d+1;
@@ -317,7 +358,7 @@ fmt_fp(struct fmt_args *f, long double y, int w, int p, int fl, int t)
         if (p>0||(fl&ALT_FORM)) out(f, ".", 1);
       }
       out(f, ss, MIN(buf+9-ss, p));
-      p -= buf+9-ss;
+      p -= (int)(buf+9-ss);
     }
     pad(f, '0', p+18, 18, 0);
     out(f, estr, ebuf-estr);
@@ -325,18 +366,30 @@ fmt_fp(struct fmt_args *f, long double y, int w, int p, int fl, int t)
 
   pad(f, ' ', w, pl+l, fl^LEFT_ADJ);
 
-  return MAX(w, pl+l);
+  return (int)MAX(w, pl+l);
 }
 
 static int
 fmt_core(struct fmt_args *f, const char *fmt, mrb_float flo)
 {
-  int p;
+  ptrdiff_t w, p;
+  uint32_t fl;
 
   if (*fmt != '%') {
     return -1;
   }
   ++fmt;
+
+  /* Read modifier flags */
+  for (fl=0; (unsigned)*fmt-' '<32 && (FLAGMASK&(1U<<(*fmt-' '))); fmt++)
+    fl |= 1U<<(*fmt-' ');
+
+  /* - and 0 flags are mutually exclusive */
+  if (fl & LEFT_ADJ) fl &= ~ZERO_PAD;
+
+  for (w = 0; ISDIGIT(*fmt); ++fmt) {
+    w = 10 * w + (*fmt - '0');
+  }
 
   if (*fmt == '.') {
     ++fmt;
@@ -351,21 +404,61 @@ fmt_core(struct fmt_args *f, const char *fmt, mrb_float flo)
   switch (*fmt) {
   case 'e': case 'f': case 'g': case 'a':
   case 'E': case 'F': case 'G': case 'A':
-    return fmt_fp(f, flo, 0, p, 0, *fmt);
+    return fmt_fp(f, flo, w, p, fl, *fmt);
   default:
     return -1;
   }
 }
 
-mrb_value
+MRB_API mrb_value
 mrb_float_to_str(mrb_state *mrb, mrb_value flo, const char *fmt)
 {
   struct fmt_args f;
+  mrb_value str = mrb_str_new_capa(mrb, 24);
 
   f.mrb = mrb;
-  f.str = mrb_str_buf_new(mrb, 24);
+  f.output = strcat_value;
+  f.opaque = (void*)&str;
   if (fmt_core(&f, fmt, mrb_float(flo)) < 0) {
     mrb_raise(mrb, E_ARGUMENT_ERROR, "invalid format string");
   }
-  return f.str;
+  return str;
 }
+
+MRB_API int
+mrb_float_to_cstr(mrb_state *mrb, char *buf, size_t len, const char *fmt, mrb_float fval)
+{
+  struct fmt_args f;
+  struct mrb_cstr cstr;
+
+  cstr.buf = buf;
+  cstr.len = len - 1; /* reserve NUL terminator */
+  f.mrb = mrb;
+  f.output = strcat_cstr;
+  f.opaque = (void*)&cstr;
+  if (fmt_core(&f, fmt, fval) < 0) {
+    mrb_raise(mrb, E_ARGUMENT_ERROR, "invalid format string");
+  }
+  *cstr.buf = '\0';
+  return (int)(cstr.buf - buf);
+}
+#else   /* MRB_DISABLE_STDIO || _WIN32 || _WIN64 */
+#include <mruby.h>
+#include <stdio.h>
+
+MRB_API mrb_value
+mrb_float_to_str(mrb_state *mrb, mrb_value flo, const char *fmt)
+{
+  char buf[25];
+
+  snprintf(buf, sizeof(buf), fmt, mrb_float(flo));
+  return mrb_str_new_cstr(mrb, buf);
+}
+
+MRB_API int
+mrb_float_to_cstr(mrb_state *mrb, char *buf, size_t len, const char *fmt, mrb_float fval)
+{
+  return snprintf(buf, len, fmt, fval);
+}
+#endif  /* MRB_DISABLE_STDIO || _WIN32 || _WIN64 */
+#endif

@@ -11,13 +11,6 @@ assert('Struct.new', '15.2.18.3.1') do
   assert_equal [:m1, :m2], c.members
 end
 
-# Check crash bug with Struc.new and no params.
-assert('Struct.new', '15.2.18.3.1') do
-  c = Struct.new()
-  assert_equal Struct, c.superclass
-  assert_equal [], c.members
-end
-
 assert('Struct#==', '15.2.18.4.1') do
   c = Struct.new(:m1, :m2)
   cc1 = c.new(1,2)
@@ -123,9 +116,10 @@ assert('struct dup') do
 end
 
 assert('struct inspect') do
-  c = Struct.new(:m1, :m2, :m3, :m4, :m5)
-  cc = c.new(1,2,3,4,5)
-  assert_equal "#<struct m1=1, m2=2, m3=3, m4=4, m5=5>", cc.inspect
+  c = Struct.new(:m1, :m2, :m3, :m4, :m5, :recur)
+  cc = c.new(1,2,3,4,5,nil)
+  cc.recur = cc
+  assert_equal "#<struct m1=1, m2=2, m3=3, m4=4, m5=5, recur=#<struct #{cc.class}:...>>", cc.inspect
 end
 
 assert('Struct#length, Struct#size') do
@@ -159,14 +153,14 @@ assert("Struct#dig") do
   assert_equal 1, a.dig(1, 0)
 end
 
-assert("Struct.new removes existing constant") do
-  skip "redefining Struct with same name cause warnings"
-  begin
-    assert_not_equal Struct.new("Test", :a), Struct.new("Test", :a, :b)
-  ensure
-    Struct.remove_const :Test
-  end
-end
+# TODO: suppress redefining Struct warning during test
+# assert("Struct.new removes existing constant") do
+#   begin
+#     assert_not_equal Struct.new("Test", :a), Struct.new("Test", :a, :b)
+#   ensure
+#     Struct.remove_const :Test
+#   end
+# end
 
 assert("Struct#initialize_copy requires struct to be the same type") do
   begin
@@ -188,11 +182,15 @@ assert("Struct.new does not allow array") do
   end
 end
 
+assert("Struct.new does not allow invalid class name") do
+  assert_raise(NameError) { Struct.new("Test-", :a) }
+end
+
 assert("Struct.new generates subclass of Struct") do
   begin
     original_struct = Struct
     Struct = String
-    assert_equal original_struct, original_struct.new.superclass
+    assert_equal original_struct, original_struct.new(:foo).superclass
   ensure
     Struct = original_struct
   end
@@ -206,7 +204,7 @@ assert 'Struct#freeze' do
   assert_equal :test, o.m
 
   o.freeze
-  assert_raise(RuntimeError) { o.m = :modify }
-  assert_raise(RuntimeError) { o[:m] = :modify }
+  assert_raise(FrozenError) { o.m = :modify }
+  assert_raise(FrozenError) { o[:m] = :modify }
   assert_equal :test, o.m
 end

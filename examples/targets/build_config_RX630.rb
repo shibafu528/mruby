@@ -27,12 +27,11 @@ MRuby::CrossBuild.new("RX630") do |conf|
   conf.cc do |cc|
     cc.command = "#{BIN_PATH}/rx-elf-gcc"
     cc.flags = "-Wall -g -O2 -flto -mcpu=rx600 -m64bit-doubles"
-    cc.compile_options = "%{flags} -o %{outfile} -c %{infile}"
+    cc.compile_options = %Q[%{flags} -o "%{outfile}" -c "%{infile}"]
 
     #configuration for low memory environment
     cc.defines << %w(MRB_USE_FLOAT)
     cc.defines << %w(MRB_HEAP_PAGE_SIZE=64)
-    cc.defines << %w(MRB_USE_IV_SEGLIST)
     cc.defines << %w(KHASH_DEFAULT_SIZE=8)
     cc.defines << %w(MRB_STR_BUF_MIN_SIZE=20)
     cc.defines << %w(MRB_GC_STRESS)
@@ -54,7 +53,7 @@ MRuby::CrossBuild.new("RX630") do |conf|
 
   conf.archiver do |archiver|
     archiver.command = "#{BIN_PATH}/rx-elf-ar"
-    archiver.archive_options = 'rcs %{outfile} %{objs}'
+    archiver.archive_options = 'rcs "%{outfile}" %{objs}'
   end
 
   #no executables

@@ -3,7 +3,12 @@ assert('NilClass#to_a') do
 end
 
 assert('NilClass#to_f') do
+  skip unless Object.const_defined?(:Float)
   assert_equal 0.0, nil.to_f
+end
+
+assert('NilClass#to_h') do
+  assert_equal Hash.new, nil.to_h
 end
 
 assert('NilClass#to_i') do

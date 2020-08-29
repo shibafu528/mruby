@@ -7,16 +7,18 @@ end
 
 assert('Integer#+', '15.2.8.3.1') do
   a = 1+1
-  b = 1+1.0
+  b = 1+1.0 if Object.const_defined?(:Float)
 
   assert_equal 2, a
-  assert_equal 2.0, b
+  assert_equal 2.0, b if Object.const_defined?(:Float)
 
   assert_raise(TypeError){ 0+nil }
   assert_raise(TypeError){ 1+nil }
 
   c = Mrbtest::FIXNUM_MAX + 1
   d = Mrbtest::FIXNUM_MAX.__send__(:+, 1)
+
+  skip unless Object.const_defined?(:Float)
   e = Mrbtest::FIXNUM_MAX + 1.0
   assert_equal Float, c.class
   assert_equal Float, d.class
@@ -26,13 +28,15 @@ end
 
 assert('Integer#-', '15.2.8.3.2') do
   a = 2-1
-  b = 2-1.0
+  b = 2-1.0 if Object.const_defined?(:Float)
 
   assert_equal 1, a
-  assert_equal 1.0, b
+  assert_equal 1.0, b if Object.const_defined?(:Float)
 
   c = Mrbtest::FIXNUM_MIN - 1
   d = Mrbtest::FIXNUM_MIN.__send__(:-, 1)
+
+  skip unless Object.const_defined?(:Float)
   e = Mrbtest::FIXNUM_MIN - 1.0
   assert_equal Float, c.class
   assert_equal Float, d.class
@@ -42,16 +46,18 @@ end
 
 assert('Integer#*', '15.2.8.3.3') do
   a = 1*1
-  b = 1*1.0
+  b = 1*1.0 if Object.const_defined?(:Float)
 
   assert_equal 1, a
-  assert_equal 1.0, b
+  assert_equal 1.0, b if Object.const_defined?(:Float)
 
   assert_raise(TypeError){ 0*nil }
   assert_raise(TypeError){ 1*nil }
 
   c = Mrbtest::FIXNUM_MAX * 2
   d = Mrbtest::FIXNUM_MAX.__send__(:*, 2)
+
+  skip unless Object.const_defined?(:Float)
   e = Mrbtest::FIXNUM_MAX * 2.0
   assert_equal Float, c.class
   assert_equal Float, d.class
@@ -148,11 +154,11 @@ assert('Integer#<<', '15.2.8.3.12') do
   # Left Shift by a negative is Right Shift
   assert_equal 23, 46 << -1
 
-  # Left Shift by 31 is bitShift overflow to SignedInt
-  assert_equal 2147483648, 1 << 31
+  skip unless Object.const_defined?(:Float)
 
-  # -3 Left Shift by 30 is bitShift overflow to SignedInt
-  assert_equal(-3221225472, -3 << 30)
+  # Overflow to Fixnum
+  assert_float 9223372036854775808.0, 1 << 63
+  assert_float(-13835058055282163712.0, -3 << 62)
 end
 
 assert('Integer#>>', '15.2.8.3.13') do
@@ -217,6 +223,7 @@ assert('Integer#times', '15.2.8.3.22') do
 end
 
 assert('Integer#to_f', '15.2.8.3.23') do
+  skip unless Object.const_defined?(:Float)
   assert_equal 1.0, 1.to_f
 end
 
@@ -225,8 +232,16 @@ assert('Integer#to_i', '15.2.8.3.24') do
 end
 
 assert('Integer#to_s', '15.2.8.3.25') do
-  assert_equal '1', 1.to_s
-  assert_equal("-1", -1.to_s)
+  assert_equal "1", 1.to_s
+  assert_equal "-1", -1.to_s
+  assert_equal "1010", 10.to_s(2)
+  assert_equal "a", 10.to_s(36)
+  assert_equal "-a", -10.to_s(36)
+  assert_equal "30071", 12345.to_s(8)
+  assert_raise(ArgumentError) { 10.to_s(-1) }
+  assert_raise(ArgumentError) { 10.to_s(0) }
+  assert_raise(ArgumentError) { 10.to_s(1) }
+  assert_raise(ArgumentError) { 10.to_s(37) }
 end
 
 assert('Integer#truncate', '15.2.8.3.26') do
@@ -249,20 +264,4 @@ assert('Integer#divmod', '15.2.8.3.30') do
   assert_equal [-1,  2],  -3.divmod(5)
   assert_equal [-2, -1],  25.divmod(-13)
   assert_equal [ 1, -6], -13.divmod(-7)
-end
-
-# Not ISO specified
-
-assert('Integer#step') do
-  a = []
-  b = []
-  1.step(3) do |i|
-    a << i
-  end
-  1.step(6, 2) do |i|
-    b << i
-  end
-
-  assert_equal [1, 2, 3], a
-  assert_equal [1, 3, 5], b
 end
